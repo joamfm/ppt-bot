@@ -28,6 +28,7 @@ conn.commit()
 c.execute("INSERT OR IGNORE INTO puntajes (user_id, nombre, puntos) VALUES (999, 'PRUEBA', 0)")
 conn.commit()
 
+
 def sumar_punto(user_id: int, nombre: str):
     c.execute("SELECT * FROM puntajes WHERE user_id = ?", (user_id,))
     if c.fetchone():
@@ -36,9 +37,22 @@ def sumar_punto(user_id: int, nombre: str):
         c.execute("INSERT INTO puntajes (user_id, nombre, puntos) VALUES (?, ?, 1)", (user_id, nombre))
     conn.commit()
 
+
 def obtener_ranking():
     c.execute("SELECT nombre, puntos FROM puntajes ORDER BY puntos DESC")
     return c.fetchall()
+
+
+def exportar_ranking_csv():
+    c.execute("SELECT nombre, puntos FROM puntajes ORDER BY puntos DESC")
+    datos = c.fetchall()
+    nombre_archivo = "ranking_ppt.csv"
+    with open(nombre_archivo, "w", encoding="utf-8") as f:
+        f.write("Nombre,Puntos\n")
+        for nombre, puntos in datos:
+            f.write(f"{nombre},{puntos}\n")
+    return nombre_archivo
+
 
 # --- Botón de juego ---
 async def comando_ppt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -54,6 +68,7 @@ async def comando_ppt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=teclado
     )
 
+
 async def comando_rankingppt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ranking = obtener_ranking()
     if not ranking:
@@ -65,35 +80,52 @@ async def comando_rankingppt(update: Update, context: ContextTypes.DEFAULT_TYPE)
         texto += f"{i}. {nombre} - {puntos} pts\n"
     await update.message.reply_text(texto)
 
+
 async def comando_resetppt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("DELETE FROM puntajes")
     conn.commit()
     await update.message.reply_text("🔄 Ranking de Piedra, Papel o Tijera reiniciado.")
 
+
+async def comando_exportaranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    archivo = exportar_ranking_csv()
+    with open(archivo, "rb") as f:
+        await update.message.reply_document(document=f, filename=archivo)
+
+
 # --- Juego ---
 async def jugar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        print(f"⚠️ Error en query.answer(): {e}")
+        return
 
-    user = update.effective_user
-    eleccion_usuario = query.data.split("|")[1]
-    eleccion_bot = random.choice(["piedra", "papel", "tijera"])
+    try:
+        user = update.effective_user
+        print(f"📲 {user.first_name} presionó un botón")
+        eleccion_usuario = query.data.split("|")[1]
+        eleccion_bot = random.choice(["piedra", "papel", "tijera"])
 
-    if eleccion_usuario == eleccion_bot:
-        resultado = "🤝 Empate"
-    elif (eleccion_usuario == "piedra" and eleccion_bot == "tijera") or \
-         (eleccion_usuario == "papel" and eleccion_bot == "piedra") or \
-         (eleccion_usuario == "tijera" and eleccion_bot == "papel"):
-        resultado = "🎉 Ganaste"
-        sumar_punto(user.id, user.first_name)
-    else:
-        resultado = "😢 Perdiste"
+        if eleccion_usuario == eleccion_bot:
+            resultado = "🤝 Empate"
+        elif (eleccion_usuario == "piedra" and eleccion_bot == "tijera") or \
+             (eleccion_usuario == "papel" and eleccion_bot == "piedra") or \
+             (eleccion_usuario == "tijera" and eleccion_bot == "papel"):
+            resultado = "🎉 Ganaste"
+            sumar_punto(user.id, user.first_name)
+        else:
+            resultado = "😢 Perdiste"
 
-    print(f"🪨📄✂️ {user.first_name} eligió {eleccion_usuario}, bot eligió {eleccion_bot} -> {resultado}")
-    await query.edit_message_text(
-        f"{user.first_name} eligió {eleccion_usuario}.\n"
-        f"El bot eligió {eleccion_bot}.\n\n{resultado}"
-    )
+        print(f"🪨📄✂️ {user.first_name} eligió {eleccion_usuario}, bot eligió {eleccion_bot} -> {resultado}")
+        await query.edit_message_text(
+            f"{user.first_name} eligió {eleccion_usuario}.\n"
+            f"El bot eligió {eleccion_bot}.\n\n{resultado}"
+        )
+    except Exception as e:
+        print(f"⚠️ Error inesperado en jugar(): {e}")
+
 
 # --- Main ---
 if __name__ == "__main__":
@@ -101,6 +133,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("ppt", comando_ppt))
     app.add_handler(CommandHandler("rankingppt", comando_rankingppt))
     app.add_handler(CommandHandler("resetppt", comando_resetppt))
+    app.add_handler(CommandHandler("exportaranking", comando_exportaranking))
     app.add_handler(CallbackQueryHandler(jugar, pattern="^ppt\\|"))
     print("Bot PPT con SQLite activo.")
     app.run_polling()
